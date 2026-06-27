@@ -146,7 +146,7 @@
                 ))}
               </div>
             )}
-            {synth?.solutionIntersection?.perPerson?.map((pp,i) => (
+            {synth?.perPerson?.map((pp,i) => (
               <div key={i} style={{background:C.off,borderRadius:10,padding:"14px 18px",borderLeft:`4px solid ${pColor(pp.name)}`,marginBottom:10}}>
                 <div style={{fontSize:13,fontWeight:700,color:C.dark,marginBottom:4}}>{pp.name}</div>
                 <div style={{fontSize:12,color:C.body,marginBottom:6}}>{pp.messagingAngle}</div>
