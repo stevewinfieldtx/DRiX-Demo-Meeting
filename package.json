@@ -1,0 +1,12 @@
+{
+  "name": "drix-demo-meeting",
+  "version": "1.0.0",
+  "description": "DRiX Meeting Intelligence Demo",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.21.0"
+  }
+}

@@ -1,0 +1,421 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DRiX Meeting Intelligence</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.9/babel.min.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, "Segoe UI", system-ui, sans-serif; background: #0F1B2D; }
+    input::placeholder { color: #64748B; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="text/babel">
+    const { useState, useCallback } = React;
+
+    const BRAIN = "https://drix-brain.up.railway.app";
+    const C = {
+      navy:"#0F1B2D",deep:"#1A3A5C",teal:"#0EA5E9",cyan:"#22D3EE",
+      white:"#FFFFFF",off:"#F0F4F8",mgray:"#94A3B8",
+      dark:"#1E293B",body:"#334155",amber:"#F59E0B",green:"#10B981",red:"#EF4444",
+    };
+    const PERSONAS = [
+      {id:"economic",label:"Economic Buyer",ex:"CFO, VP Finance, COO",color:C.amber,icon:"\u{1F4B0}"},
+      {id:"technical",label:"Technical Evaluator",ex:"CISO, CTO, IT Director",color:C.teal,icon:"\u{1F527}"},
+      {id:"champion",label:"Business Champion",ex:"VP of IT, LOB Leader",color:C.green,icon:"\u{1F3AF}"},
+    ];
+
+    const Pill = ({color, children}) => (
+      <span style={{padding:"2px 9px",borderRadius:10,background:`${color}18`,color,fontSize:10,fontWeight:600}}>{children}</span>
+    );
+
+    function App() {
+      const [customer, setCustomer] = useState("");
+      const [solution, setSolution] = useState("");
+      const [selected, setSelected] = useState([]);
+      const [stage, setStage] = useState("first");
+      const [result, setResult] = useState(null);
+      const [loading, setLoading] = useState(false);
+      const [err, setErr] = useState(null);
+      const [loadMsg, setLoadMsg] = useState("");
+      const [dragIdx, setDragIdx] = useState(null);
+      const [details, setDetails] = useState({});
+
+      const updateDetail = (pid, field, val) => {
+        setDetails(p => ({...p, [pid]: {...(p[pid]||{}), [field]: val}}));
+        setResult(null);
+      };
+      const toggle = (id) => { setSelected(p => p.includes(id)?p.filter(x=>x!==id):p.length>=3?p:[...p,id]); setResult(null); };
+      const move = (from, to) => { setSelected(p => {const n=[...p];const[m]=n.splice(from,1);n.splice(to,0,m);return n;}); setResult(null); };
+      const comboLabel = () => selected.length===0?"No attendees":selected.map(id=>PERSONAS.find(p=>p.id===id)?.label).join(" + ");
+      const stageLabel = stage==="first"?"1st Meeting":"Final Decision";
+      const pColor = (label) => {
+        if(!label) return C.mgray;
+        const l=label.toLowerCase();
+        return l.includes("economic")||l.includes("cfo")||l.includes("finance")?C.amber
+          :l.includes("technical")||l.includes("ciso")||l.includes("cto")?C.teal
+          :l.includes("champion")||l.includes("business")||l.includes("vp")?C.green:C.mgray;
+      };
+
+      const generate = useCallback(async () => {
+        if (!customer||!solution||selected.length===0) return;
+        setLoading(true); setErr(null); setResult(null);
+        setLoadMsg("Connecting to DRiX Brain...");
+
+        try {
+          const attendees = selected.map(id => {
+            const p = PERSONAS.find(x=>x.id===id);
+            const d = details[id]||{};
+            return {
+              name: d.name||p.label,
+              title: d.title||p.ex.split(",")[0].trim(),
+              company: customer,
+              email: d.email||null,
+              linkedin: d.linkedin||null,
+              company_url: d.companyUrl||null,
+            };
+          });
+
+          setLoadMsg(`Scanning ${attendees.length} attendee${attendees.length>1?"s":""}...`);
+
+          const res = await fetch(BRAIN+"/intel/meeting", {
+            method:"POST",
+            headers:{"Content-Type":"application/json"},
+            body: JSON.stringify({
+              attendees,
+              solution,
+              meetingType: stage==="first"?"discovery":"negotiation",
+              company: customer,
+              notes: `Meeting stage: ${stageLabel}. Priority: ${selected.map((id,i)=>`#${i+1} ${PERSONAS.find(x=>x.id===id)?.label}`).join(", ")}`,
+            }),
+          });
+
+          if (!res.ok) {
+            const errBody = await res.text();
+            throw new Error(`Brain ${res.status}: ${errBody.slice(0,300)}`);
+          }
+
+          setLoadMsg("Processing intelligence...");
+          const data = await res.json();
+          setResult({data, cached: data._cached});
+        } catch(e) {
+          setErr(e.message);
+          console.error("Error:", e);
+        }
+        setLoading(false);
+      }, [customer, solution, selected, stage, details]);
+
+      const renderResult = () => {
+        if (!result) return null;
+        const d = result.data;
+        const synth = d.solutionIntersection;
+        const group = d.groupDynamics;
+        const indivs = d.individuals||[];
+
+        return (
+          <div style={{background:C.white,borderRadius:"0 0 10px 10px",padding:"24px 28px"}}>
+
+            {synth?.executiveSummary && (
+              <div style={{background:C.off,borderRadius:10,padding:"16px 20px",borderLeft:`4px solid ${C.cyan}`,marginBottom:18}}>
+                <div style={{fontSize:10,fontWeight:700,color:C.cyan,textTransform:"uppercase",letterSpacing:1,marginBottom:6}}>Executive Summary</div>
+                <div style={{fontSize:15,color:C.dark,lineHeight:1.55}}>{synth.executiveSummary}</div>
+              </div>
+            )}
+
+            {group?.powerMap && (
+              <div style={{marginBottom:18}}>
+                <div style={{fontSize:14,fontWeight:700,color:C.navy,marginBottom:8}}>Power Map</div>
+                <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                  {group.powerMap.decisionMaker && <Pill color={C.amber}>Decision Maker: {group.powerMap.decisionMaker}</Pill>}
+                  {group.powerMap.champions?.map((c,i)=><Pill key={"c"+i} color={C.green}>Champion: {c}</Pill>)}
+                  {group.powerMap.blockers?.map((b,i)=><Pill key={"b"+i} color={C.red}>Blocker: {b}</Pill>)}
+                  {group.powerMap.influencers?.map((f,i)=><Pill key={"i"+i} color={C.teal}>Influencer: {f}</Pill>)}
+                  {group.powerMap.observers?.map((o,i)=><Pill key={"o"+i} color={C.mgray}>Observer: {o}</Pill>)}
+                </div>
+              </div>
+            )}
+
+            {group?.groupStrategy && (
+              <div style={{background:C.off,borderRadius:10,padding:"14px 18px",borderLeft:`4px solid ${C.amber}`,marginBottom:18}}>
+                <div style={{fontSize:10,fontWeight:700,color:C.amber,textTransform:"uppercase",letterSpacing:1,marginBottom:4}}>Group Strategy</div>
+                <div style={{fontSize:13,color:C.body,lineHeight:1.5}}>{group.groupStrategy}</div>
+              </div>
+            )}
+
+            {group?.sequencing && (
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:18}}>
+                {[["openWith","Open With",C.green],["buildMomentum","Build Momentum",C.teal],["neutralize","Neutralize Resistance",C.amber],["close","Close",C.cyan]].map(([k,label,col])=>(
+                  group.sequencing[k] ? (
+                    <div key={k} style={{background:C.off,borderRadius:8,padding:"12px 16px",borderLeft:`4px solid ${col}`}}>
+                      <div style={{fontSize:10,fontWeight:700,color:col,textTransform:"uppercase",marginBottom:4}}>{label}</div>
+                      <div style={{fontSize:12,color:C.body,lineHeight:1.45}}>{group.sequencing[k]}</div>
+                    </div>
+                  ) : null
+                ))}
+              </div>
+            )}
+
+            {synth?.solutionIntersection?.perPerson?.map((pp,i) => (
+              <div key={i} style={{background:C.off,borderRadius:10,padding:"16px 20px",borderLeft:`4px solid ${pColor(pp.name)}`,marginBottom:12}}>
+                <div style={{fontSize:14,fontWeight:700,color:C.dark,marginBottom:6}}>{pp.name}</div>
+                <div style={{fontSize:12,color:C.body,marginBottom:8}}>{pp.messagingAngle}</div>
+                {pp.relevantPainPoints?.length>0 && (
+                  <div style={{marginBottom:8}}>
+                    <span style={{fontSize:10,fontWeight:700,color:C.red,textTransform:"uppercase"}}>Pain Points: </span>
+                    <span style={{fontSize:12,color:C.body}}>{pp.relevantPainPoints.join(" · ")}</span>
+                  </div>
+                )}
+                {pp.objections?.slice(0,3).map((obj,j)=>(
+                  <div key={j} style={{fontSize:12,color:C.body,marginBottom:6,paddingLeft:12,borderLeft:`3px solid ${C.red}20`}}>
+                    <span style={{fontWeight:600}}>Objection: </span>{obj.objection}
+                    <br/><span style={{color:C.green,fontWeight:600}}>Response: </span>{obj.response}
+                  </div>
+                ))}
+                {pp.proofPoints?.length>0 && (
+                  <div style={{fontSize:11,color:C.mgray,marginTop:4}}>
+                    <span style={{fontWeight:600}}>Evidence that resonates: </span>{pp.proofPoints.join(", ")}
+                  </div>
+                )}
+              </div>
+            ))}
+
+            {synth?.meetingScript && (
+              <div style={{marginTop:16,marginBottom:16}}>
+                <div style={{fontSize:14,fontWeight:700,color:C.navy,marginBottom:10}}>Meeting Script</div>
+                {synth.meetingScript.opening && (
+                  <div style={{fontSize:13,color:C.body,marginBottom:10,paddingLeft:14,borderLeft:`3px solid ${C.green}`}}>
+                    <span style={{fontWeight:700,color:C.green}}>Opening: </span>{synth.meetingScript.opening}
+                  </div>
+                )}
+                {synth.meetingScript.agendaFraming && (
+                  <div style={{fontSize:12,color:C.body,marginBottom:10,paddingLeft:14,borderLeft:`3px solid ${C.teal}30`}}>
+                    <span style={{fontWeight:600,color:C.teal}}>Agenda Frame: </span>{synth.meetingScript.agendaFraming}
+                  </div>
+                )}
+                {synth.meetingScript.assignments?.map((a,i)=>(
+                  <div key={i} style={{fontSize:12,color:C.body,marginBottom:8,paddingLeft:14,borderLeft:`3px solid ${pColor(a.directedAt)}30`}}>
+                    <span style={{fontWeight:600}}>{a.topic}</span> → <span style={{color:pColor(a.directedAt),fontWeight:600}}>{a.directedAt}</span>
+                    <div style={{fontSize:11,color:C.mgray,marginTop:2}}>{a.why}</div>
+                  </div>
+                ))}
+                {synth.meetingScript.closingMove && (
+                  <div style={{fontSize:13,color:C.body,paddingLeft:14,borderLeft:`3px solid ${C.amber}`,marginTop:10}}>
+                    <span style={{fontWeight:700,color:C.amber}}>Closing Move: </span>{synth.meetingScript.closingMove}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {group?.landmines?.length>0 && (
+              <div style={{background:"#FEF2F2",borderRadius:8,padding:"12px 16px",borderLeft:`4px solid ${C.red}`,marginBottom:14}}>
+                <div style={{fontSize:10,fontWeight:700,color:C.red,textTransform:"uppercase",marginBottom:6}}>Landmines</div>
+                {group.landmines.map((lm,i)=><div key={i} style={{fontSize:12,color:C.body,marginBottom:3}}>· {lm}</div>)}
+              </div>
+            )}
+
+            {(group?.roomEnergy||group?.winCondition) && (
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:14}}>
+                {group.roomEnergy && (
+                  <div style={{background:C.off,borderRadius:8,padding:"12px 16px",borderLeft:`4px solid ${C.amber}`}}>
+                    <div style={{fontSize:10,fontWeight:700,color:C.amber,textTransform:"uppercase",marginBottom:4}}>Room Energy</div>
+                    <div style={{fontSize:12,color:C.body}}>{group.roomEnergy}</div>
+                  </div>
+                )}
+                {group.winCondition && (
+                  <div style={{background:C.off,borderRadius:8,padding:"12px 16px",borderLeft:`4px solid ${C.green}`}}>
+                    <div style={{fontSize:10,fontWeight:700,color:C.green,textTransform:"uppercase",marginBottom:4}}>Win Condition</div>
+                    <div style={{fontSize:12,color:C.body}}>{group.winCondition}</div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {synth?.dealKillers?.length>0 && (
+              <div style={{background:"#FEF2F2",borderRadius:8,padding:"12px 16px",borderLeft:`4px solid ${C.red}`,marginBottom:14}}>
+                <div style={{fontSize:10,fontWeight:700,color:C.red,textTransform:"uppercase",marginBottom:6}}>Deal Killers</div>
+                {synth.dealKillers.map((dk,i)=><div key={i} style={{fontSize:12,color:C.body,marginBottom:3}}>· {dk}</div>)}
+              </div>
+            )}
+
+            {synth?.followUp?.length>0 && (
+              <div style={{marginBottom:14}}>
+                <div style={{fontSize:14,fontWeight:700,color:C.navy,marginBottom:8}}>Follow-Up Plan</div>
+                {synth.followUp.map((fu,i)=>(
+                  <div key={i} style={{background:C.off,borderRadius:8,padding:"10px 14px",marginBottom:6,display:"flex",gap:12,alignItems:"flex-start"}}>
+                    <div style={{minWidth:80}}>
+                      <div style={{fontSize:12,fontWeight:600,color:pColor(fu.person)}}>{fu.person}</div>
+                      <div style={{fontSize:10,color:C.mgray}}>{fu.timing} · {fu.channel}</div>
+                    </div>
+                    <div style={{fontSize:12,color:C.body,flex:1}}>
+                      <div style={{fontWeight:600}}>{fu.action}</div>
+                      <div style={{fontSize:11,color:C.mgray,marginTop:2}}>{fu.contentAngle}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {indivs?.length>0 && (
+              <div style={{marginBottom:14}}>
+                <div style={{fontSize:14,fontWeight:700,color:C.navy,marginBottom:8}}>Individual Profiles</div>
+                {indivs.map((ind,i)=>(
+                  <div key={i} style={{background:C.off,borderRadius:8,padding:"12px 16px",marginBottom:8,borderLeft:`4px solid ${pColor(ind.title)}`}}>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
+                      <div style={{fontSize:13,fontWeight:700,color:C.dark}}>{ind.name} — {ind.title}</div>
+                      {ind.archetype && ind.archetype!=="unknown" && <Pill color={C.teal}>{ind.archetype}</Pill>}
+                    </div>
+                    {ind.keyInsight && <div style={{fontSize:12,color:C.body,marginBottom:4}}>{ind.keyInsight}</div>}
+                    <div style={{display:"flex",gap:12,fontSize:11,color:C.mgray}}>
+                      {ind.decisionStyle && ind.decisionStyle!=="unknown" && <span>Decision: {ind.decisionStyle}</span>}
+                      {ind.riskAppetite && ind.riskAppetite!=="unknown" && <span>Risk: {ind.riskAppetite}</span>}
+                      {ind.communicationStyle && ind.communicationStyle!=="unknown" && <span>Comms: {ind.communicationStyle}</span>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div style={{display:"flex",gap:8,justifyContent:"flex-end",paddingTop:10,borderTop:`1px solid #E2E8F0`}}>
+              {d.pipelineTimeMs && <Pill color={C.mgray}>{(d.pipelineTimeMs/1000).toFixed(1)}s</Pill>}
+              {d.totalAtoms>0 && <Pill color={C.cyan}>{d.totalAtoms} atoms</Pill>}
+              {d.attendeeCount && <Pill color={C.teal}>{d.attendeeCount} scanned</Pill>}
+              <Pill color={result.cached?C.green:C.teal}>{result.cached?"Cached":"Live"}</Pill>
+            </div>
+          </div>
+        );
+      };
+
+      return (
+        <div style={{minHeight:"100vh",background:C.navy,color:C.white}}>
+          <div style={{padding:"16px 28px",borderBottom:`1px solid ${C.deep}`,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+            <div style={{fontSize:22,fontWeight:800}}>
+              DR<span style={{color:C.cyan,fontStyle:"italic"}}>i</span>X
+              <span style={{color:C.mgray,fontWeight:400,fontSize:14,marginLeft:12}}>Meeting Intelligence</span>
+            </div>
+            <div style={{display:"flex",borderRadius:6,overflow:"hidden",border:`1px solid ${C.deep}`}}>
+              {[["first","1st Meeting"],["final","Final Decision"]].map(([v,l])=>(
+                <button key={v} onClick={()=>{setStage(v);setResult(null);}}
+                  style={{padding:"7px 16px",border:"none",background:stage===v?(v==="first"?C.teal:C.amber):C.deep,color:stage===v?C.white:C.mgray,fontSize:12,fontWeight:600,cursor:"pointer"}}>
+                  {l}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div style={{padding:"7px 28px",background:`${C.cyan}06`,borderBottom:`1px solid ${C.cyan}12`,display:"flex",alignItems:"center",gap:8}}>
+            <div style={{width:6,height:6,borderRadius:"50%",background:C.cyan,animation:"p 2s infinite"}}/>
+            <span style={{fontSize:11,color:C.cyan,fontWeight:600}}>DRiX Brain Connected</span>
+            <span style={{fontSize:10,color:C.mgray}}>— live API scans, psychographic profiling, power mapping, 9D intelligence</span>
+            <style>{`@keyframes p{0%,100%{opacity:1}50%{opacity:.3}}`}</style>
+          </div>
+
+          <div style={{padding:"20px 28px"}}>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14,marginBottom:16}}>
+              {[["Customer",customer,setCustomer,"e.g. Acme Corp"],["Solution",solution,setSolution,"e.g. Managed Detection & Response"]].map(([lbl,val,set,ph])=>(
+                <div key={lbl}>
+                  <label style={{fontSize:10,fontWeight:600,color:C.mgray,textTransform:"uppercase",letterSpacing:1,display:"block",marginBottom:5}}>{lbl}</label>
+                  <input value={val} onChange={e=>{set(e.target.value);setResult(null);}} placeholder={ph}
+                    style={{width:"100%",padding:"10px 14px",borderRadius:8,border:`1px solid ${C.deep}`,background:C.deep,color:C.white,fontSize:14,outline:"none",boxSizing:"border-box"}}/>
+                </div>
+              ))}
+            </div>
+
+            <label style={{fontSize:10,fontWeight:600,color:C.mgray,textTransform:"uppercase",letterSpacing:1,display:"block",marginBottom:8}}>Who is in the meeting?</label>
+            <div style={{display:"flex",gap:10,marginBottom:12}}>
+              {PERSONAS.map(p=>{
+                const sel=selected.includes(p.id);
+                const ord=selected.indexOf(p.id);
+                return (
+                  <button key={p.id} onClick={()=>toggle(p.id)}
+                    style={{flex:1,padding:"12px 14px",borderRadius:10,border:sel?`2px solid ${p.color}`:`1px solid ${C.deep}`,background:sel?`${p.color}12`:C.deep,cursor:"pointer",textAlign:"left",position:"relative"}}>
+                    {sel && <div style={{position:"absolute",top:-8,right:-8,width:22,height:22,borderRadius:"50%",background:p.color,color:C.navy,fontSize:12,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center"}}>{ord+1}</div>}
+                    <div style={{fontSize:18,marginBottom:4}}>{p.icon}</div>
+                    <div style={{fontSize:13,fontWeight:700,color:sel?p.color:C.white}}>{p.label}</div>
+                    <div style={{fontSize:11,color:C.mgray}}>{p.ex}</div>
+                  </button>
+                );
+              })}
+            </div>
+
+            {selected.length>0 && (
+              <div style={{background:`${C.cyan}06`,border:`1px solid ${C.cyan}15`,borderRadius:8,padding:"12px 16px",marginBottom:12}}>
+                <div style={{fontSize:10,fontWeight:700,color:C.cyan,textTransform:"uppercase",letterSpacing:1,marginBottom:8}}>Attendee Details (improves scan accuracy)</div>
+                {selected.map(id=>{
+                  const p=PERSONAS.find(x=>x.id===id);
+                  const d=details[id]||{};
+                  return (
+                    <div key={id} style={{display:"flex",gap:8,marginBottom:8,alignItems:"center",flexWrap:"wrap"}}>
+                      <span style={{fontSize:11,fontWeight:600,color:p.color,minWidth:65}}>{p.icon} {p.label.split(" ")[0]}</span>
+                      {[["name","Full name"],["title","Title"],["email","Email"],["linkedin","LinkedIn URL"]].map(([f,ph])=>(
+                        <input key={f} value={d[f]||""} onChange={e=>updateDetail(id,f,e.target.value)} placeholder={ph}
+                          style={{flex:1,minWidth:120,padding:"6px 10px",borderRadius:6,border:`1px solid ${C.cyan}20`,background:C.navy,color:C.white,fontSize:11,outline:"none",boxSizing:"border-box"}}/>
+                      ))}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {selected.length>1 && (
+              <div style={{background:C.deep,borderRadius:8,padding:"9px 14px",marginBottom:12,display:"flex",alignItems:"center",gap:10}}>
+                <span style={{fontSize:10,color:C.mgray}}>Priority:</span>
+                <div style={{display:"flex",gap:6,flex:1}}>
+                  {selected.map((id,idx)=>{
+                    const p=PERSONAS.find(x=>x.id===id);
+                    return (
+                      <div key={id} draggable onDragStart={()=>setDragIdx(idx)} onDragOver={e=>e.preventDefault()}
+                        onDrop={()=>{if(dragIdx!==null&&dragIdx!==idx)move(dragIdx,idx);setDragIdx(null);}}
+                        style={{padding:"5px 12px",borderRadius:6,background:`${p.color}20`,border:`1px solid ${p.color}40`,color:p.color,fontSize:11,fontWeight:600,cursor:"grab",userSelect:"none"}}>
+                        #{idx+1} {p.label}
+                      </div>
+                    );
+                  })}
+                </div>
+                <span style={{fontSize:9,color:C.mgray}}>drag to reorder</span>
+              </div>
+            )}
+
+            <button onClick={generate} disabled={!customer||!solution||selected.length===0||loading}
+              style={{width:"100%",padding:"13px",borderRadius:8,border:"none",background:!customer||!solution||selected.length===0?C.deep:C.cyan,color:C.white,fontSize:14,fontWeight:700,cursor:!customer||!solution||selected.length===0?"not-allowed":"pointer",opacity:!customer||!solution||selected.length===0?0.5:1}}>
+              {loading?loadMsg:`Generate ${stageLabel} Intelligence — ${comboLabel()}`}
+            </button>
+          </div>
+
+          {err && <div style={{margin:"0 28px",padding:12,background:"#FEF2F2",borderRadius:8,color:C.red,fontSize:12,wordBreak:"break-word"}}>{err}</div>}
+
+          {loading && (
+            <div style={{padding:"36px 28px",textAlign:"center"}}>
+              <div style={{fontSize:14,color:C.cyan,marginBottom:12}}>{loadMsg}</div>
+              <div style={{width:200,height:3,background:C.deep,borderRadius:2,margin:"0 auto",overflow:"hidden"}}>
+                <div style={{width:"40%",height:"100%",background:C.cyan,borderRadius:2,animation:"ld 1.5s ease-in-out infinite"}}/>
+              </div>
+              <style>{`@keyframes ld{0%{transform:translateX(-100%)}100%{transform:translateX(350%)}}`}</style>
+            </div>
+          )}
+
+          {result && !loading && (
+            <div style={{padding:"0 28px 28px"}}>
+              <div style={{background:C.deep,borderRadius:"10px 10px 0 0",padding:"14px 22px",display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
+                <div style={{fontSize:17,fontWeight:800}}>DRiX Intelligence Package</div>
+                <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
+                  <Pill color={stage==="first"?C.teal:C.amber}>{stageLabel}</Pill>
+                  <Pill color={C.cyan}>9D Powered</Pill>
+                  {selected.map(id=>{const p=PERSONAS.find(x=>x.id===id);return <Pill key={id} color={p.color}>{p.icon} {p.label}</Pill>;})}
+                </div>
+              </div>
+              {renderResult()}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    ReactDOM.render(React.createElement(App), document.getElementById("root"));
+  </script>
+</body>
+</html>
