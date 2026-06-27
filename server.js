@@ -207,6 +207,7 @@ Generate complete meeting intelligence as JSON:
     "perPerson": [{"name":"<title>","relevantPainPoints":[],"messagingAngle":"","objections":[{"objection":"","response":""}],"proofPoints":[],"economicFrame":"","statusQuoCounter":""}],
     "executiveSummary": "<3-4 sentences>",
     "meetingScript": {"opening":"","agendaFraming":"","assignments":[{"topic":"","directedAt":"","why":""}],"closingMove":""},
+    "anticipatedQuestions": [{"question":"<specific question this persona will ask>","askedBy":"<role>","response":"<how to answer>","proofPoint":"<evidence to reference>"}],
     "dealKillers": [],
     "wildcards": []
   },
