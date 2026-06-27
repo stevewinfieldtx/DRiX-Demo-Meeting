@@ -74,9 +74,10 @@
             const attendees = selected.map(id => {
               const p = PERSONAS.find(x=>x.id===id);
               const d = details[id]||{};
+              const defaultTitle = p.ex.split(",")[0].trim();
               return {
-                name: d.name||p.label,
-                title: d.title||p.ex.split(",")[0].trim(),
+                name: d.name||defaultTitle,
+                title: d.title||defaultTitle,
                 company: customer,
                 email: d.email||null,
                 linkedin: d.linkedin||null,
@@ -100,13 +101,34 @@
             setResult({type:"brain", data, cached: data._cached});
           } catch(e) { setErr(e.message); }
         } else {
-          // TDE OFF — generic outline
-          setLoadMsg("Generating generic outline...");
-          const personas = selected.map((id,i)=>{
+          // TDE OFF — same structure, no 9D engine
+          setLoadMsg(`Building outline for ${customer}...`);
+          const attendeeList = selected.map((id,i)=>{
             const p=PERSONAS.find(x=>x.id===id);
-            return `${i+1}. ${p.label} (${p.ex}) — Priority #${i+1}`;
+            const d=details[id]||{};
+            return `#${i+1} (Priority): ${d.title||p.ex.split(",")[0].trim()} at ${customer}${d.name?' ('+d.name+')':''}`;
           }).join("\n");
-          const prompt = `Generate a meeting outline as JSON for:\nCUSTOMER: ${customer}\nSOLUTION: ${solution}\nSTAGE: ${stage==="first"?"First meeting — discovery":"Final decision — close"}\nATTENDEES:\n${personas}\n\nReturn: {"title":"...","sections":[{"heading":"Section","targetPersona":"who","subs":[{"point":"Sub","details":["Detail"]}]}]}\n5-7 sections, 3 levels deep. Be specific to the customer. JSON only.`;
+          const stageCtx = stage==="first"
+            ? "FIRST MEETING: Discovery. Build rapport, uncover pain, qualify the opportunity, understand the decision process, earn the next meeting. Do not pitch pricing."
+            : "FINAL DECISION MEETING: Close. Address remaining objections, confirm ROI, secure the commitment, handle procurement and timeline.";
+          const prompt = `You are a B2B meeting preparation assistant. Generate a meeting strategy outline.
+
+CUSTOMER: ${customer}
+SOLUTION: ${solution}
+MEETING STAGE: ${stageCtx}
+
+ATTENDEES (ordered by relationship importance):
+${attendeeList}
+
+Generate a structured meeting outline as JSON with 5-7 sections. Each section should have 2-3 sub-points, each sub-point with 1-2 detail lines. The outline should flow as a natural meeting conversation from opening to close.
+
+Consider the dynamics between attendees. Who has authority? Who influences? How does the conversation change based on who is in the room?
+
+${selected.length===1?"This is a 1-on-1 meeting. The entire flow speaks to one person.":selected.length===2?"Two attendees. Balance attention between both.":"Full committee. Manage dynamics between all attendees."}
+
+Return: {"title":"...","sections":[{"heading":"Section","targetPersona":"which attendee role this targets","subs":[{"point":"Sub-point","details":["Detail line"]}]}]}
+
+Be specific to ${customer} and the ${solution} solution. Not generic. JSON only.`;
           try {
             const res = await fetch("/api/generic", {
               method:"POST",
