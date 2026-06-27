@@ -18,7 +18,7 @@
   <script type="text/babel">
     const { useState, useCallback } = React;
 
-    const BRAIN = "https://drix-brain.up.railway.app";
+    const BRAIN = "";  // same-origin proxy
     const C = {
       navy:"#0F1B2D",deep:"#1A3A5C",teal:"#0EA5E9",cyan:"#22D3EE",
       white:"#FFFFFF",off:"#F0F4F8",mgray:"#94A3B8",
@@ -83,7 +83,7 @@
 
           setLoadMsg(`Scanning ${attendees.length} attendee${attendees.length>1?"s":""}...`);
 
-          const res = await fetch(BRAIN+"/intel/meeting", {
+          const res = await fetch("/api/meeting", {
             method:"POST",
             headers:{"Content-Type":"application/json"},
             body: JSON.stringify({
