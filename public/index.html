@@ -39,6 +39,7 @@
       const [solution, setSolution] = useState("");
       const [selected, setSelected] = useState([]);
       const [stage, setStage] = useState("first");
+      const [tdeOn, setTdeOn] = useState(true);
       const [result, setResult] = useState(null);
       const [loading, setLoading] = useState(false);
       const [err, setErr] = useState(null);
@@ -65,50 +66,98 @@
       const generate = useCallback(async () => {
         if (!customer||!solution||selected.length===0) return;
         setLoading(true); setErr(null); setResult(null);
-        setLoadMsg("Connecting to DRiX Brain...");
 
-        try {
-          const attendees = selected.map(id => {
-            const p = PERSONAS.find(x=>x.id===id);
-            const d = details[id]||{};
-            return {
-              name: d.name||p.label,
-              title: d.title||p.ex.split(",")[0].trim(),
-              company: customer,
-              email: d.email||null,
-              linkedin: d.linkedin||null,
-              company_url: d.companyUrl||null,
-            };
-          });
-
-          setLoadMsg(`Scanning ${attendees.length} attendee${attendees.length>1?"s":""}...`);
-
-          const res = await fetch("/api/meeting", {
-            method:"POST",
-            headers:{"Content-Type":"application/json"},
-            body: JSON.stringify({
-              attendees,
-              solution,
-              meetingType: stage==="first"?"discovery":"negotiation",
-              company: customer,
-              notes: `Meeting stage: ${stageLabel}. Priority: ${selected.map((id,i)=>`#${i+1} ${PERSONAS.find(x=>x.id===id)?.label}`).join(", ")}`,
-            }),
-          });
-
-          if (!res.ok) {
-            const errBody = await res.text();
-            throw new Error(`Brain ${res.status}: ${errBody.slice(0,300)}`);
-          }
-
-          setLoadMsg("Processing intelligence...");
-          const data = await res.json();
-          setResult({data, cached: data._cached});
-        } catch(e) {
-          setErr(e.message);
-          console.error("Error:", e);
+        if (tdeOn) {
+          // TDE ON — call Brain (role-based or person-based)
+          setLoadMsg("Applying 9D decomposition...");
+          try {
+            const attendees = selected.map(id => {
+              const p = PERSONAS.find(x=>x.id===id);
+              const d = details[id]||{};
+              return {
+                name: d.name||p.label,
+                title: d.title||p.ex.split(",")[0].trim(),
+                company: customer,
+                email: d.email||null,
+                linkedin: d.linkedin||null,
+                company_url: d.companyUrl||null,
+              };
+            });
+            setLoadMsg(`Analyzing ${attendees.length} role${attendees.length>1?"s":""} at ${customer}...`);
+            const res = await fetch("/api/meeting", {
+              method:"POST",
+              headers:{"Content-Type":"application/json"},
+              body: JSON.stringify({
+                attendees, solution,
+                meetingType: stage==="first"?"discovery":"negotiation",
+                company: customer,
+                notes: `Stage: ${stageLabel}. Priority: ${selected.map((id,i)=>`#${i+1} ${PERSONAS.find(x=>x.id===id)?.label}`).join(", ")}`,
+              }),
+            });
+            if (!res.ok) throw new Error(`${res.status}: ${(await res.text()).slice(0,300)}`);
+            setLoadMsg("Processing intelligence...");
+            const data = await res.json();
+            setResult({type:"brain", data, cached: data._cached});
+          } catch(e) { setErr(e.message); }
+        } else {
+          // TDE OFF — generic outline
+          setLoadMsg("Generating generic outline...");
+          const personas = selected.map((id,i)=>{
+            const p=PERSONAS.find(x=>x.id===id);
+            return `${i+1}. ${p.label} (${p.ex}) — Priority #${i+1}`;
+          }).join("\n");
+          const prompt = `Generate a meeting outline as JSON for:\nCUSTOMER: ${customer}\nSOLUTION: ${solution}\nSTAGE: ${stage==="first"?"First meeting — discovery":"Final decision — close"}\nATTENDEES:\n${personas}\n\nReturn: {"title":"...","sections":[{"heading":"Section","targetPersona":"who","subs":[{"point":"Sub","details":["Detail"]}]}]}\n5-7 sections, 3 levels deep. Be specific to the customer. JSON only.`;
+          try {
+            const res = await fetch("/api/generic", {
+              method:"POST",
+              headers:{"Content-Type":"application/json"},
+              body: JSON.stringify({prompt}),
+            });
+            if (!res.ok) throw new Error(`${res.status}: ${(await res.text()).slice(0,300)}`);
+            const data = await res.json();
+            setResult({type:"generic", data});
+          } catch(e) { setErr(e.message); }
         }
         setLoading(false);
-      }, [customer, solution, selected, stage, details]);
+      }, [customer, solution, selected, stage, details, tdeOn]);
+
+      const renderGenericOutline = () => {
+        if (!result || result.type !== "generic") return null;
+        const outline = result.data;
+        return (
+          <div style={{background:C.white,borderRadius:"0 0 10px 10px",padding:"24px 28px"}}>
+            {outline.sections?.map((sec,i) => (
+              <div key={i} style={{marginBottom:i<outline.sections.length-1?16:0}}>
+                <div style={{display:"flex",gap:10,marginBottom:6}}>
+                  <div style={{minWidth:28,height:28,borderRadius:6,background:C.navy,color:C.cyan,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:800,fontSize:12,flexShrink:0}}>
+                    {["I","II","III","IV","V","VI","VII"][i]||(i+1)}
+                  </div>
+                  <div>
+                    <div style={{fontSize:14,fontWeight:700,color:C.dark}}>{sec.heading?.replace(/^[IVX]+\.\s*/,"")}</div>
+                    {sec.targetPersona && <span style={{fontSize:10,color:pColor(sec.targetPersona),fontWeight:600}}>{sec.targetPersona}</span>}
+                  </div>
+                </div>
+                <div style={{marginLeft:38}}>
+                  {sec.subs?.map((sub,j) => (
+                    <div key={j} style={{marginBottom:8}}>
+                      <div style={{fontSize:12,fontWeight:600,color:C.dark,borderLeft:`3px solid ${pColor(sec.targetPersona)}30`,paddingLeft:10,marginBottom:2}}>
+                        {sub.point?.replace(/^[A-C]\.\s*/,"")}
+                      </div>
+                      {sub.details?.map((det,k) => (
+                        <div key={k} style={{fontSize:11,color:C.body,paddingLeft:22,position:"relative",marginBottom:1}}>
+                          <span style={{position:"absolute",left:10,color:C.mgray}}>·</span>
+                          {det.replace(/^\d+\.\s*/,"")}
+                        </div>
+                      ))}
+                    </div>
+                  ))}
+                </div>
+                {i<outline.sections.length-1 && <div style={{height:1,background:"#E2E8F0",marginTop:6}}/>}
+              </div>
+            ))}
+          </div>
+        );
+      };
 
       const renderResult = () => {
         if (!result) return null;
@@ -297,22 +346,33 @@
               DR<span style={{color:C.cyan,fontStyle:"italic"}}>i</span>X
               <span style={{color:C.mgray,fontWeight:400,fontSize:14,marginLeft:12}}>Meeting Intelligence</span>
             </div>
-            <div style={{display:"flex",borderRadius:6,overflow:"hidden",border:`1px solid ${C.deep}`}}>
-              {[["first","1st Meeting"],["final","Final Decision"]].map(([v,l])=>(
-                <button key={v} onClick={()=>{setStage(v);setResult(null);}}
-                  style={{padding:"7px 16px",border:"none",background:stage===v?(v==="first"?C.teal:C.amber):C.deep,color:stage===v?C.white:C.mgray,fontSize:12,fontWeight:600,cursor:"pointer"}}>
-                  {l}
+            <div style={{display:"flex",gap:8,alignItems:"center"}}>
+              <div style={{display:"flex",borderRadius:6,overflow:"hidden",border:`1px solid ${C.deep}`}}>
+                {[["first","1st Meeting"],["final","Final Decision"]].map(([v,l])=>(
+                  <button key={v} onClick={()=>{setStage(v);setResult(null);}}
+                    style={{padding:"7px 16px",border:"none",background:stage===v?(v==="first"?C.teal:C.amber):C.deep,color:stage===v?C.white:C.mgray,fontSize:12,fontWeight:600,cursor:"pointer"}}>
+                    {l}
+                  </button>
+                ))}
+              </div>
+              <div style={{display:"flex",alignItems:"center",gap:6}}>
+                <span style={{fontSize:10,color:tdeOn?C.cyan:C.mgray,fontWeight:700,letterSpacing:1}}>TDE</span>
+                <button onClick={()=>{setTdeOn(!tdeOn);setResult(null);}}
+                  style={{width:38,height:20,borderRadius:10,border:"none",background:tdeOn?C.cyan:C.deep,cursor:"pointer",position:"relative"}}>
+                  <div style={{width:16,height:16,borderRadius:"50%",background:C.white,position:"absolute",top:2,left:tdeOn?20:2,transition:"all 0.2s"}}/>
                 </button>
-              ))}
+              </div>
             </div>
           </div>
 
-          <div style={{padding:"7px 28px",background:`${C.cyan}06`,borderBottom:`1px solid ${C.cyan}12`,display:"flex",alignItems:"center",gap:8}}>
-            <div style={{width:6,height:6,borderRadius:"50%",background:C.cyan,animation:"p 2s infinite"}}/>
-            <span style={{fontSize:11,color:C.cyan,fontWeight:600}}>DRiX Brain Connected</span>
-            <span style={{fontSize:10,color:C.mgray}}>— live API scans, psychographic profiling, power mapping, 9D intelligence</span>
-            <style>{`@keyframes p{0%,100%{opacity:1}50%{opacity:.3}}`}</style>
-          </div>
+          {tdeOn && (
+            <div style={{padding:"7px 28px",background:`${C.cyan}06`,borderBottom:`1px solid ${C.cyan}12`,display:"flex",alignItems:"center",gap:8}}>
+              <div style={{width:6,height:6,borderRadius:"50%",background:C.cyan,animation:"p 2s infinite"}}/>
+              <span style={{fontSize:11,color:C.cyan,fontWeight:600}}>9D Engine Active</span>
+              <span style={{fontSize:10,color:C.mgray}}>— filtering by persona, buying stage, emotional drivers, evidence type, credibility, recency, economic pressure, status quo, industry</span>
+              <style>{`@keyframes p{0%,100%{opacity:1}50%{opacity:.3}}`}</style>
+            </div>
+          )}
 
           <div style={{padding:"20px 28px"}}>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14,marginBottom:16}}>
@@ -401,14 +461,14 @@
           {result && !loading && (
             <div style={{padding:"0 28px 28px"}}>
               <div style={{background:C.deep,borderRadius:"10px 10px 0 0",padding:"14px 22px",display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
-                <div style={{fontSize:17,fontWeight:800}}>DRiX Intelligence Package</div>
+                <div style={{fontSize:17,fontWeight:800}}>{result.type==="brain"?"DRiX Intelligence Package":"Generic Meeting Outline"}</div>
                 <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
                   <Pill color={stage==="first"?C.teal:C.amber}>{stageLabel}</Pill>
-                  <Pill color={C.cyan}>9D Powered</Pill>
+                  <Pill color={result.type==="brain"?C.cyan:C.mgray}>{result.type==="brain"?"9D Powered":"Generic AI"}</Pill>
                   {selected.map(id=>{const p=PERSONAS.find(x=>x.id===id);return <Pill key={id} color={p.color}>{p.icon} {p.label}</Pill>;})}
                 </div>
               </div>
-              {renderResult()}
+              {result.type==="brain" ? renderResult() : renderGenericOutline()}
             </div>
           )}
         </div>
